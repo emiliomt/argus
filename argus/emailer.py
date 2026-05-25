@@ -343,6 +343,11 @@ def _looks_new(summary: ChangeSummary) -> bool:
     return "new source" in lower or "first time" in lower
 
 
+def render_summary_html(text: str) -> str:
+    """Convert LLM summary markdown to safe HTML for the web dashboard."""
+    return _markdown_to_html(text)
+
+
 def _markdown_to_html(text: str) -> str:
     """
     Convert a simple markdown-ish summary to safe HTML suitable for email.

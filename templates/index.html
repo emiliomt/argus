@@ -252,6 +252,41 @@
     .tag-green { background: var(--green-dim); color: var(--green); }
     .tag-gray  { background: #f1f5f9; color: var(--muted); }
 
+    /* ── Digest ──────────────────────────────────────────────────── */
+    .digest-section { margin-bottom: 20px; }
+    .digest-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    .digest-card {
+      padding: 20px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .digest-card:last-child { border-bottom: none; }
+    .digest-source {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .digest-url {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 14px;
+      word-break: break-all;
+    }
+    .digest-url a { color: var(--blue); text-decoration: none; }
+    .digest-url a:hover { text-decoration: underline; }
+    .digest-body {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--text);
+    }
+    .digest-body p { margin: 0 0 10px; }
+    .digest-body ul { margin: 0 0 10px; padding-left: 20px; }
+    .digest-body li { margin-bottom: 4px; }
+
     /* ── Empty state ─────────────────────────────────────────────── */
     .empty {
       padding: 36px 20px;
@@ -325,6 +360,36 @@
     </div>
   </div>
 
+  <!-- Latest digest -->
+  <section class="digest-section">
+    <div class="card" id="digest-card">
+      <div class="card-head">
+        <span class="card-title">Latest Digest</span>
+        <span class="digest-meta" id="digest-meta">
+          {% if digest %}
+            <span class="ts" data-ts="{{ digest.run_at }}">—</span>
+            · {{ digest.summaries | length }} summar{{ 'y' if digest.summaries | length == 1 else 'ies' }}
+          {% endif %}
+        </span>
+      </div>
+      <div id="digest-body">
+        {% if digest %}
+          {% for s in digest.summaries %}
+          <div class="digest-card">
+            <div class="digest-source">{{ s.source_name }}</div>
+            <div class="digest-url"><a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url }}</a></div>
+            <div class="digest-body">{{ s.summary_html | safe }}</div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty" id="digest-empty">
+            No summaries yet — run a check to capture changes and generate summaries.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
   <!-- Two-column content -->
   <div class="grid">
 
@@ -377,7 +442,7 @@
             <th>When</th>
             <th>Checked</th>
             <th>Changed</th>
-            <th>Email</th>
+            <th>Summaries</th>
           </tr>
         </thead>
         <tbody id="runs-tbody">
@@ -393,8 +458,8 @@
               {% endif %}
             </td>
             <td>
-              {% if r.email_sent %}
-                <span class="tag tag-green">Sent</span>
+              {% if r.summary_count > 0 %}
+                <span class="tag tag-green">{{ r.summary_count }}</span>
               {% else %}
                 <span class="tag tag-gray">—</span>
               {% endif %}
@@ -592,15 +657,40 @@
         <td>${r.urls_changed > 0
           ? `<span class="tag tag-blue">${r.urls_changed}</span>`
           : '<span class="tag tag-gray">0</span>'}</td>
-        <td>${r.email_sent
-          ? '<span class="tag tag-green">Sent</span>'
+        <td>${r.summary_count > 0
+          ? `<span class="tag tag-green">${r.summary_count}</span>`
           : '<span class="tag tag-gray">—</span>'}</td>
       </tr>
     `).join('');
   }
 
+  async function refreshDigest() {
+    const digest = await fetch('/api/digest').then(r => r.json());
+    const body = document.getElementById('digest-body');
+    const meta = document.getElementById('digest-meta');
+
+    if (!digest || !digest.summaries || digest.summaries.length === 0) {
+      body.innerHTML = `<div class="empty" id="digest-empty">
+        No changes in the latest run — summaries appear here when sources change.
+      </div>`;
+      meta.textContent = '';
+      return;
+    }
+
+    const n = digest.summaries.length;
+    meta.innerHTML = `<span class="ts" data-ts="${digest.run_at}">${timeAgo(digest.run_at)}</span> · ${n} summar${n === 1 ? 'y' : 'ies'}`;
+
+    body.innerHTML = digest.summaries.map(s => `
+      <div class="digest-card">
+        <div class="digest-source">${esc(s.source_name)}</div>
+        <div class="digest-url"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></div>
+        <div class="digest-body">${s.summary_html}</div>
+      </div>
+    `).join('');
+  }
+
   async function refreshAll() {
-    await Promise.all([refreshSources(), refreshRuns()]);
+    await Promise.all([refreshSources(), refreshRuns(), refreshDigest()]);
     refreshTimestamps();
   }
 

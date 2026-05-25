@@ -56,6 +56,17 @@ CREATE TABLE IF NOT EXISTS run_log (
 );
 """
 
+_CREATE_RUN_SUMMARIES = """
+CREATE TABLE IF NOT EXISTS run_summaries (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id       INTEGER NOT NULL,
+    url          TEXT NOT NULL,
+    source_name  TEXT NOT NULL,
+    summary_text TEXT NOT NULL,
+    FOREIGN KEY (run_id) REFERENCES run_log(id) ON DELETE CASCADE
+);
+"""
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -84,6 +95,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
     conn.execute(_CREATE_SNAPSHOTS)
     conn.execute(_CREATE_RUN_LOG)
+    conn.execute(_CREATE_RUN_SUMMARIES)
     conn.commit()
 
     logger.debug("Database initialised at %s", db_path)
@@ -157,7 +169,7 @@ def log_run(
     urls_changed: int,
     email_sent: bool,
     error_message: str | None = None,
-) -> None:
+) -> int:
     """
     Append a row to run_log recording the outcome of a digest run.
 
@@ -167,8 +179,11 @@ def log_run(
         urls_changed:  Number of sources where content differed from last run.
         email_sent:    True if a digest email was successfully delivered.
         error_message: Top-level error if the run failed, otherwise None.
+
+    Returns:
+        The id of the newly inserted run_log row.
     """
-    conn.execute(
+    cursor = conn.execute(
         """
         INSERT INTO run_log (urls_checked, urls_changed, email_sent, error_message)
         VALUES (?, ?, ?, ?)
@@ -176,9 +191,86 @@ def log_run(
         (urls_checked, urls_changed, int(email_sent), error_message),
     )
     conn.commit()
+    run_id = cursor.lastrowid
     logger.info(
-        "Run logged: checked=%d changed=%d email_sent=%s",
+        "Run logged: id=%d checked=%d changed=%d email_sent=%s",
+        run_id,
         urls_checked,
         urls_changed,
         email_sent,
     )
+    return run_id
+
+
+def save_run_summaries(
+    conn: sqlite3.Connection,
+    run_id: int,
+    summaries: list,
+) -> None:
+    """
+    Persist LLM summaries for a digest run (shown in the web dashboard).
+
+    Args:
+        conn:      Open database connection.
+        run_id:    run_log.id for this run.
+        summaries: Iterable of ChangeSummary objects from summarizer.py.
+    """
+    if not summaries:
+        return
+
+    conn.executemany(
+        """
+        INSERT INTO run_summaries (run_id, url, source_name, summary_text)
+        VALUES (?, ?, ?, ?)
+        """,
+        [
+            (run_id, s.url, s.source_name, s.summary_text)
+            for s in summaries
+        ],
+    )
+    conn.commit()
+    logger.info("Saved %d summaries for run %d", len(summaries), run_id)
+
+
+def get_summaries_for_run(conn: sqlite3.Connection, run_id: int) -> list[dict]:
+    """Return all summaries for a given run_log id, oldest first."""
+    rows = conn.execute(
+        """
+        SELECT url, source_name, summary_text
+        FROM run_summaries
+        WHERE run_id = ?
+        ORDER BY id ASC
+        """,
+        (run_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_latest_digest(conn: sqlite3.Connection) -> dict | None:
+    """
+    Return the most recent run that has at least one stored summary.
+
+    Returns:
+        Dict with run metadata and a summaries list, or None if no digest exists.
+    """
+    row = conn.execute(
+        """
+        SELECT r.id, r.run_at, r.urls_checked, r.urls_changed
+        FROM run_log r
+        WHERE EXISTS (SELECT 1 FROM run_summaries s WHERE s.run_id = r.id)
+        ORDER BY r.run_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    summaries = get_summaries_for_run(conn, row["id"])
+    return {
+        "run_id": row["id"],
+        "run_at": row["run_at"],
+        "urls_checked": row["urls_checked"],
+        "urls_changed": row["urls_changed"],
+        "summaries": summaries,
+    }

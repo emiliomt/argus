@@ -132,40 +132,47 @@ def run_digest(config: dict, db_path: str) -> None:
             logger.error("Summarization failed for %s: %s", name, exc)
 
     # -----------------------------------------------------------------------
-    # Phase 3: Build and send email digest
+    # Phase 3: Optional email delivery (dashboard is the default output)
     # -----------------------------------------------------------------------
 
     email_sent = False
 
-    if summaries:
+    if summaries and _email_enabled(config):
         digest = emailer.build_digest(
             summaries=summaries,
             run_date=datetime.now(timezone.utc),
             total_checked=len(sources),
         )
-
         try:
             _deliver_email(config, digest)
             email_sent = True
         except Exception as exc:  # noqa: BLE001
             logger.error("Email delivery failed: %s", exc)
-    else:
+    elif not summaries:
         logger.info(
-            "No changes detected across %d source%s — no email sent.",
+            "No changes detected across %d source%s.",
             len(sources),
             "s" if len(sources) != 1 else "",
         )
 
     # -----------------------------------------------------------------------
-    # Phase 4: Log run outcome
+    # Phase 4: Log run outcome and persist summaries for the dashboard
     # -----------------------------------------------------------------------
 
-    storage.log_run(
+    run_id = storage.log_run(
         conn=conn,
         urls_checked=len(sources),
         urls_changed=len(changed_sources),
         email_sent=email_sent,
     )
+
+    if summaries:
+        storage.save_run_summaries(conn, run_id, summaries)
+        logger.info(
+            "Digest saved to dashboard (%d summar%s).",
+            len(summaries),
+            "y" if len(summaries) == 1 else "ies",
+        )
 
     conn.close()
     logger.info("Argus digest run complete.")
@@ -257,6 +264,16 @@ def start_background_scheduler(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _email_enabled(config: dict) -> bool:
+    """Return True only when email delivery is explicitly turned on in config."""
+    email_cfg = config.get("email") or {}
+    if not email_cfg.get("enabled", False):
+        return False
+    if not email_cfg.get("from") or not email_cfg.get("to"):
+        return False
+    return True
 
 
 def _deliver_email(config: dict, digest: emailer.DigestEmail) -> None:

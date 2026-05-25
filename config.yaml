@@ -37,11 +37,13 @@ schedule:
   cron: "0 6 * * *"
 
 # ------------------------------------------------------------
-# Email — where to send the digest.
+# Email — optional. Summaries appear in the web dashboard by default.
+# Set enabled: true to also email the digest.
 # provider: "smtp"  (uses smtplib + settings in the smtp section)
 #           "sendgrid"  (uses the SendGrid HTTP API)
 # ------------------------------------------------------------
 email:
+  enabled: false
   from: "argus@yourcompany.com"
   to:
     - "you@yourcompany.com"
