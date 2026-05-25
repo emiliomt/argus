@@ -1,0 +1,77 @@
+# ============================================================
+# Argus — Competitive Intelligence Monitor
+# Configuration file
+#
+# Copy this file (or edit it in place) to set up your sources,
+# email delivery, and schedule. API keys and credentials go in
+# .env (see .env.example) — never in this file.
+# ============================================================
+
+# ------------------------------------------------------------
+# Sources — add as many as you like.
+# Each entry needs:
+#   name: human-readable label that appears in the email digest
+#   url:  the exact URL to monitor
+# ------------------------------------------------------------
+sources:
+  - name: "Competitor Alpha — Pricing"
+    url: "https://stripe.com/pricing"
+
+  - name: "Competitor Beta — Blog"
+    url: "https://vercel.com/blog"
+
+  - name: "Industry News — TechCrunch AI"
+    url: "https://techcrunch.com/category/artificial-intelligence/"
+
+  - name: "Hacker News — Show HN"
+    url: "https://news.ycombinator.com/show"
+
+# ------------------------------------------------------------
+# Schedule — standard cron syntax, always interpreted as UTC.
+# Examples:
+#   "0 6 * * *"    — 6:00 AM UTC daily      (recommended)
+#   "0 8 * * 1-5"  — 8:00 AM UTC weekdays only
+#   "0 */4 * * *"  — every 4 hours
+# ------------------------------------------------------------
+schedule:
+  cron: "0 6 * * *"
+
+# ------------------------------------------------------------
+# Email — where to send the digest.
+# provider: "smtp"  (uses smtplib + settings in the smtp section)
+#           "sendgrid"  (uses the SendGrid HTTP API)
+# ------------------------------------------------------------
+email:
+  from: "argus@yourcompany.com"
+  to:
+    - "you@yourcompany.com"
+    # - "teammate@yourcompany.com"
+  subject_prefix: "[Argus]"
+  provider: "smtp"
+
+# ------------------------------------------------------------
+# SMTP settings — only used when email.provider = "smtp".
+# Credentials (SMTP_USER, SMTP_PASSWORD) come from .env.
+#
+# Gmail example:
+#   host: smtp.gmail.com
+#   port: 587
+#   use_tls: true
+#   Generate an App Password at: myaccount.google.com/apppasswords
+#
+# Generic SMTP / self-hosted:
+#   host: mail.yourcompany.com
+#   port: 587
+# ------------------------------------------------------------
+smtp:
+  host: "smtp.gmail.com"
+  port: 587
+  use_tls: true
+
+# ------------------------------------------------------------
+# Database — SQLite file path for storing page snapshots and
+# run history. Relative paths are resolved from the working
+# directory where you run `python main.py`.
+# ------------------------------------------------------------
+database:
+  path: "argus.db"

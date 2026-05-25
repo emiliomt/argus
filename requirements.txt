@@ -1,0 +1,22 @@
+# Argus — Competitive Intelligence Monitor
+# Core dependencies
+
+# Anthropic SDK — LLM summarization via claude-sonnet-4-20250514
+anthropic>=0.49.0
+
+# HTTP client for scraping
+requests>=2.31.0
+
+# HTML parsing + boilerplate stripping
+beautifulsoup4>=4.12.0
+lxml>=5.1.0          # faster parser backend for BeautifulSoup
+
+# Scheduling — APScheduler drives the daily cron loop
+APScheduler>=3.10.0
+
+# Config and env
+python-dotenv>=1.0.0
+PyYAML>=6.0.1
+
+# Optional — only needed when email.provider = "sendgrid"
+# sendgrid>=6.11.0
