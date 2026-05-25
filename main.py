@@ -7,7 +7,7 @@ Usage:
     python main.py run --config my.yaml   # Use a custom config file
 
 Environment variables (put them in a .env file — see .env.example):
-    ANTHROPIC_API_KEY   Required for LLM summarization
+    OPENAI_API_KEY      Required for LLM summarization
     SMTP_USER           Required when email.provider = smtp
     SMTP_PASSWORD       Required when email.provider = smtp
     SENDGRID_API_KEY    Required when email.provider = sendgrid

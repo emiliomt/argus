@@ -32,9 +32,9 @@ config.yaml                          .env
 │          │ changed?                                  │
 │          ▼                                          │
 │  ┌────────────────┐                                 │
-│  │ summarizer.py  │ claude-sonnet-4-20250514        │
-│  │ (Anthropic SDK │ with prompt caching             │
-│  │  + caching)    │                                 │
+│  │ summarizer.py  │ gpt-4o                          │
+│  │ (OpenAI SDK)   │ automatic prefix caching        │
+│  │                │                                 │
 │  └────────────────┘                                 │
 │          │                                          │
 │          ▼                                          │
@@ -49,7 +49,7 @@ config.yaml                          .env
 
 **Change detection** uses a content-aware hash: navigation, headers, footers, scripts, and other boilerplate are stripped before hashing. This means a new blog post or a pricing change triggers the alert — but a nav link counter ticking up does not.
 
-**Summarization** uses prompt caching on the system prompt. The LLM is called once per changed source, and because the system instructions are identical across calls in a single run, the API serves them from cache after the first call (~10% of the normal token cost).
+**Summarization** uses `gpt-4o` via the OpenAI API. The LLM is called once per changed source. OpenAI automatically caches repeated prompt prefixes (for inputs > 1024 tokens), and cached token counts are logged so you can track savings.
 
 ---
 
@@ -60,7 +60,7 @@ argus/
 ├── argus/
 │   ├── scraper.py      # HTTP fetch + BeautifulSoup content extraction
 │   ├── diff.py         # SHA-256 hash-based change detection (pure, no I/O)
-│   ├── summarizer.py   # Anthropic API calls with prompt caching
+│   ├── summarizer.py   # OpenAI API calls (gpt-4o) with automatic prefix caching
 │   ├── emailer.py      # HTML digest builder + SMTP / SendGrid delivery
 │   ├── storage.py      # SQLite schema + CRUD (page snapshots + run log)
 │   └── scheduler.py    # APScheduler wiring + run_digest() orchestration
@@ -90,7 +90,7 @@ cp .env.example .env
 ```
 
 Edit `.env` and fill in:
-- `ANTHROPIC_API_KEY` — from [console.anthropic.com](https://console.anthropic.com/keys)
+- `OPENAI_API_KEY` — from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 - `SMTP_USER` + `SMTP_PASSWORD` — your sending email + app password
 
 > **Gmail users:** You need an [App Password](https://myaccount.google.com/apppasswords), not your regular account password. 2-Step Verification must be enabled.
@@ -190,7 +190,7 @@ python main.py run --config /etc/argus/config.yaml
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Always | Anthropic API key for summarization |
+| `OPENAI_API_KEY` | Always | OpenAI API key for summarization |
 | `SMTP_USER` | When `provider: smtp` | SMTP login (usually the sending address) |
 | `SMTP_PASSWORD` | When `provider: smtp` | SMTP password or Gmail App Password |
 | `SENDGRID_API_KEY` | When `provider: sendgrid` | SendGrid API key |
@@ -235,7 +235,7 @@ Or use a simple cron job to call `python main.py run` daily if you prefer not to
 ## Requirements
 
 - Python 3.11+
-- An [Anthropic API key](https://console.anthropic.com)
+- An [OpenAI API key](https://platform.openai.com/api-keys)
 - SMTP access (Gmail works) or a [SendGrid](https://sendgrid.com) account
 
 ---

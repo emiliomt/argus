@@ -1,8 +1,8 @@
 # Argus — Competitive Intelligence Monitor
 # Core dependencies
 
-# Anthropic SDK — LLM summarization via claude-sonnet-4-20250514
-anthropic>=0.49.0
+# OpenAI SDK — LLM summarization via gpt-4o
+openai>=1.30.0
 
 # HTTP client for scraping
 requests>=2.31.0

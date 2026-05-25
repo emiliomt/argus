@@ -1,16 +1,14 @@
 """
 summarizer.py — LLM-powered change summarization for Argus.
 
-Calls the Anthropic API (claude-sonnet-4-20250514) to turn raw before/after
-page text into concise, actionable competitive intelligence summaries.
+Calls the OpenAI API (gpt-4o) to turn raw before/after page text into
+concise, actionable competitive intelligence summaries.
 
 Key design decisions:
-- The system prompt is stable across calls in a single run, so we attach
-  `cache_control: {type: ephemeral}` to it. After the first call, the system
-  prompt is served from cache at ~0.1x the token cost for all subsequent
-  calls in the same run.
-- The user message contains the volatile content (page text) and is never
-  cached — caching rapidly-changing content would waste cache slots.
+- Model: gpt-4o — best balance of reasoning quality and cost for this task.
+- OpenAI caches prompt prefixes automatically for prompts > 1024 tokens;
+  no explicit cache_control markers are needed. Cached token counts are
+  surfaced in usage.prompt_tokens_details.cached_tokens when available.
 - Rate limit and transient server errors are retried with exponential backoff
   (up to 4 attempts) before propagating.
 """
@@ -18,10 +16,9 @@ Key design decisions:
 import logging
 import time
 from dataclasses import dataclass
-from html import escape as html_escape
 
-import anthropic
-from anthropic import APIStatusError, RateLimitError
+import openai
+from openai import APIStatusError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "gpt-4o"
 MAX_TOKENS = 1024
 MAX_RETRIES = 4
 
@@ -39,7 +36,7 @@ MAX_RETRIES = 4
 _MAX_TEXT_CHARS = 12_000
 
 # ---------------------------------------------------------------------------
-# System prompt (cached — keep it stable between runs)
+# System prompt
 # ---------------------------------------------------------------------------
 
 _SYSTEM_PROMPT = """You are a competitive intelligence analyst embedded in a B2B SaaS GTM team.
@@ -72,7 +69,7 @@ class ChangeSummary:
     source_name: str
     summary_text: str  # markdown-formatted summary from the model
     input_tokens: int
-    cached_tokens: int  # tokens served from prompt cache (cost ~0.1x)
+    cached_tokens: int  # tokens served from OpenAI's automatic prefix cache
     output_tokens: int
 
 
@@ -82,7 +79,7 @@ class ChangeSummary:
 
 
 def summarize_change(
-    client: anthropic.Anthropic,
+    client: openai.OpenAI,
     url: str,
     source_name: str,
     previous_text: str | None,
@@ -90,13 +87,13 @@ def summarize_change(
     is_new: bool,
 ) -> ChangeSummary:
     """
-    Call the Anthropic API to summarize what changed on a monitored page.
+    Call the OpenAI API to summarize what changed on a monitored page.
 
     Retries up to MAX_RETRIES times on rate-limit or transient server errors,
     using exponential backoff and the `Retry-After` header when available.
 
     Args:
-        client:        An instantiated anthropic.Anthropic client.
+        client:        An instantiated openai.OpenAI client.
         url:           The URL that changed.
         source_name:   Human-readable name for the source (from config.yaml).
         previous_text: Body text from the last stored snapshot; None if new.
@@ -108,7 +105,7 @@ def summarize_change(
 
     Raises:
         RuntimeError: If all retries are exhausted.
-        anthropic.APIError: On non-retryable API errors.
+        openai.APIError: On non-retryable API errors.
     """
     user_message = _build_user_prompt(source_name, url, previous_text, current_text, is_new)
 
@@ -116,40 +113,36 @@ def summarize_change(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = client.messages.create(
+            response = client.chat.completions.create(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
-                system=[
-                    {
-                        "type": "text",
-                        "text": _SYSTEM_PROMPT,
-                        # Attach cache_control to the system prompt block.
-                        # This is stable across all calls in a single run, so
-                        # after the first call it costs ~10% of normal input price.
-                        "cache_control": {"type": "ephemeral"},
-                    }
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
                 ],
-                messages=[{"role": "user", "content": user_message}],
             )
 
             usage = response.usage
-            cached = getattr(usage, "cache_read_input_tokens", 0) or 0
+            # OpenAI surfaces cached prefix tokens here when available.
+            cached = 0
+            if usage and hasattr(usage, "prompt_tokens_details") and usage.prompt_tokens_details:
+                cached = getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
 
             logger.info(
                 "Summarised %s — tokens: input=%d cached=%d output=%d",
                 source_name,
-                usage.input_tokens,
+                usage.prompt_tokens if usage else 0,
                 cached,
-                usage.output_tokens,
+                usage.completion_tokens if usage else 0,
             )
 
             return ChangeSummary(
                 url=url,
                 source_name=source_name,
-                summary_text=response.content[0].text,
-                input_tokens=usage.input_tokens,
+                summary_text=response.choices[0].message.content or "",
+                input_tokens=usage.prompt_tokens if usage else 0,
                 cached_tokens=cached,
-                output_tokens=usage.output_tokens,
+                output_tokens=usage.completion_tokens if usage else 0,
             )
 
         except RateLimitError as exc:
@@ -197,10 +190,7 @@ def _build_user_prompt(
     is_new: bool,
 ) -> str:
     """
-    Build the user-turn message for the Anthropic API call.
-
-    Keeps the volatile page content in the user message (not the system prompt)
-    so that prompt caching applies only to the stable system instructions.
+    Build the user-turn message for the OpenAI API call.
 
     Args:
         source_name:   Human-readable label for this source.

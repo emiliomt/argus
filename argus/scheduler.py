@@ -17,7 +17,7 @@ import logging
 import os
 from datetime import datetime, timezone
 
-import anthropic
+import openai
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -48,8 +48,8 @@ def run_digest(config: dict, db_path: str) -> None:
       rather than the first-ever version.
     - A failed scrape logs an error and skips that source; it never aborts
       the remaining sources or the email send.
-    - The Anthropic client is instantiated once per run so prompt caching
-      applies across all summarizer calls within the same run.
+    - The OpenAI client is instantiated once per run and reused across all
+      summarizer calls for efficiency.
 
     Args:
         config:  Parsed config.yaml as a dict.
@@ -58,14 +58,14 @@ def run_digest(config: dict, db_path: str) -> None:
     logger.info("Starting Argus digest run")
     conn = storage.init_db(db_path)
 
-    # One Anthropic client per run — the system-prompt cache is tied to
-    # this client session, so reusing it maximises cache hit rate.
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # One OpenAI client per run — reusing a single client is more efficient
+    # than instantiating one per URL call.
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise EnvironmentError(
-            "ANTHROPIC_API_KEY is not set. Add it to your .env file or environment."
+            "OPENAI_API_KEY is not set. Add it to your .env file or environment."
         )
-    client = anthropic.Anthropic(api_key=api_key)
+    client = openai.OpenAI(api_key=api_key)
 
     sources = config.get("sources", [])
     if not sources:
