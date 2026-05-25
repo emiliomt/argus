@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Argus — Intelligence Monitor</title>
+  <style>
+    :root {
+      --bg:        #f8fafc;
+      --surface:   #ffffff;
+      --border:    #e2e8f0;
+      --text:      #1e293b;
+      --muted:     #64748b;
+      --blue:      #2563eb;
+      --blue-dim:  #eff6ff;
+      --green:     #059669;
+      --green-dim: #ecfdf5;
+      --amber:     #d97706;
+      --red:       #dc2626;
+      --header:    #0f172a;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Topbar ─────────────────────────────────────────────────── */
+    .topbar {
+      position: sticky; top: 0; z-index: 20;
+      background: var(--header);
+      height: 54px;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 14px;
+    }
+    .logo {
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .logo span { opacity: 0.5; font-weight: 400; font-size: 13px; }
+    .spacer { flex: 1; }
+
+    /* status pill */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .pill.idle    { background: rgba(255,255,255,0.07); color: #94a3b8; }
+    .pill.running { background: rgba(37,99,235,0.25);   color: #93c5fd; }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .pill.idle    .dot { background: #475569; }
+    .pill.running .dot { background: #60a5fa; animation: blink 1.2s ease-in-out infinite; }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.2; } }
+
+    /* buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 15px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      outline: none;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn-run {
+      background: var(--blue);
+      color: #fff;
+    }
+    .btn-run:hover:not(:disabled) { background: #1d4ed8; }
+    .btn-run:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-sm {
+      padding: 5px 11px;
+      font-size: 12px;
+      border-radius: 5px;
+    }
+    .btn-add {
+      background: var(--blue);
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .btn-add:hover { background: #1d4ed8; }
+    .btn-remove {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-remove:hover { border-color: var(--red); color: var(--red); }
+
+    /* ── Page layout ────────────────────────────────────────────── */
+    .page { max-width: 1080px; margin: 0 auto; padding: 24px 20px 48px; }
+
+    /* ── Stat cards ─────────────────────────────────────────────── */
+    .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 20px; }
+    @media (max-width: 640px) { .stats { grid-template-columns: 1fr 1fr; } }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+    .stat-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .stat-value { font-size: 24px; font-weight: 700; line-height: 1; }
+    .stat-sub   { font-size: 11px; color: var(--muted); margin-top: 5px; }
+
+    /* ── Two-column grid ────────────────────────────────────────── */
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+    /* ── Card shell ─────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .card-head {
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+    }
+    .card-title { font-size: 13px; font-weight: 600; }
+    .count-pill {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 1px 8px;
+      border-radius: 999px;
+    }
+
+    /* ── Source list ─────────────────────────────────────────────── */
+    .source-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.1s;
+    }
+    .source-item:last-child { border-bottom: none; }
+    .source-item:hover { background: #fafafa; }
+    .source-body { flex: 1; min-width: 0; }
+    .source-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+    .source-url {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 240px;
+    }
+    .source-ts { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+    /* ── Add source form ────────────────────────────────────────── */
+    .add-form {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 12px 18px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border);
+    }
+    .add-form input {
+      flex: 1;
+      min-width: 100px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .add-form input::placeholder { color: #b0bec5; }
+    .add-form input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+
+    /* ── Runs table ─────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      padding: 10px 16px;
+      text-align: left;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 11px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .tag-blue  { background: var(--blue-dim);  color: var(--blue);  }
+    .tag-green { background: var(--green-dim); color: var(--green); }
+    .tag-gray  { background: #f1f5f9; color: var(--muted); }
+
+    /* ── Empty state ─────────────────────────────────────────────── */
+    .empty {
+      padding: 36px 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* ── Toast ───────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      background: var(--header);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      z-index: 99;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ── Topbar ─────────────────────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="logo">🔍 Argus <span>Intelligence Monitor</span></div>
+  <div id="status-pill" class="pill {{ 'running' if is_running else 'idle' }}">
+    <span class="dot"></span>
+    <span id="status-text">{{ 'Running…' if is_running else 'Idle' }}</span>
+  </div>
+  <div class="spacer"></div>
+  <button id="btn-run" class="btn btn-run" onclick="runNow()" {{ 'disabled' if is_running else '' }}>
+    ▶&nbsp; Run Now
+  </button>
+</header>
+
+<!-- ── Page ───────────────────────────────────────────────────────────── -->
+<div class="page">
+
+  <!-- Stat cards -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Sources</div>
+      <div class="stat-value" id="stat-sources">{{ sources | length }}</div>
+      <div class="stat-sub">monitored URLs</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Last Run</div>
+      <div class="stat-value" id="stat-last-val">
+        {% if runs %}
+          <span class="ts" data-ts="{{ runs[0].run_at }}">—</span>
+        {% else %}
+          Never
+        {% endif %}
+      </div>
+      <div class="stat-sub" id="stat-last-sub">
+        {% if runs %}{{ runs[0].urls_changed }} of {{ runs[0].urls_checked }} changed{% endif %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Next Scheduled Run</div>
+      <div class="stat-value" id="stat-next-val">—</div>
+      <div class="stat-sub" id="stat-next-sub">{{ cron }}</div>
+    </div>
+  </div>
+
+  <!-- Two-column content -->
+  <div class="grid">
+
+    <!-- Sources panel -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Sources</span>
+        <span class="count-pill" id="source-count">{{ sources | length }}</span>
+      </div>
+
+      <div id="sources-list">
+        {% if sources %}
+          {% for s in sources %}
+          <div class="source-item">
+            <div class="source-body">
+              <div class="source-name">{{ s.name }}</div>
+              <div class="source-url" title="{{ s.url }}">{{ s.url }}</div>
+              <div class="source-ts">
+                {% if s.last_checked %}
+                  Last checked: <span class="ts" data-ts="{{ s.last_checked }}">—</span>
+                {% else %}
+                  Never checked
+                {% endif %}
+              </div>
+            </div>
+            <button class="btn btn-sm btn-remove" onclick="deleteSource({{ loop.index0 }})">Remove</button>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty">No sources yet — add one below.</div>
+        {% endif %}
+      </div>
+
+      <form class="add-form" id="add-form" onsubmit="addSource(event)">
+        <input id="new-name" type="text"  placeholder="Name"        required autocomplete="off">
+        <input id="new-url"  type="url"   placeholder="https://…"   required autocomplete="off">
+        <button type="submit" class="btn btn-sm btn-add">+ Add</button>
+      </form>
+    </div>
+
+    <!-- Runs panel -->
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">Recent Runs</span>
+      </div>
+      {% if runs %}
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Checked</th>
+            <th>Changed</th>
+            <th>Email</th>
+          </tr>
+        </thead>
+        <tbody id="runs-tbody">
+          {% for r in runs %}
+          <tr>
+            <td><span class="ts" data-ts="{{ r.run_at }}" title="{{ r.run_at }}">—</span></td>
+            <td>{{ r.urls_checked }}</td>
+            <td>
+              {% if r.urls_changed > 0 %}
+                <span class="tag tag-blue">{{ r.urls_changed }}</span>
+              {% else %}
+                <span class="tag tag-gray">0</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.email_sent %}
+                <span class="tag tag-green">Sent</span>
+              {% else %}
+                <span class="tag tag-gray">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty" id="runs-empty">No runs yet — click <strong>Run Now</strong> to start.</div>
+      {% endif %}
+    </div>
+
+  </div><!-- /grid -->
+</div><!-- /page -->
+
+<div id="toast"></div>
+
+<script>
+  /* ── State ─────────────────────────────────────────────────────────── */
+  let isRunning = {{ 'true' if is_running else 'false' }};
+  let pollTimer = null;
+
+  /* ── Relative time ─────────────────────────────────────────────────── */
+  function timeAgo(iso) {
+    if (!iso) return '—';
+    // SQLite timestamps lack 'Z'; treat them as UTC
+    const d = new Date(iso.includes('T') && !iso.endsWith('Z') ? iso + 'Z' : iso);
+    const s = Math.floor((Date.now() - d) / 1000);
+    if (s < 5)    return 'just now';
+    if (s < 60)   return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400)return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+  function fmtFull(iso) {
+    if (!iso) return '';
+    const d = new Date(iso.includes('T') && !iso.endsWith('Z') ? iso + 'Z' : iso);
+    return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  }
+  function refreshTimestamps() {
+    document.querySelectorAll('.ts[data-ts]').forEach(el => {
+      el.textContent = timeAgo(el.dataset.ts);
+      el.title = fmtFull(el.dataset.ts);
+    });
+  }
+
+  /* ── Status UI ─────────────────────────────────────────────────────── */
+  function applyStatus(running) {
+    isRunning = running;
+    const pill = document.getElementById('status-pill');
+    const txt  = document.getElementById('status-text');
+    const btn  = document.getElementById('btn-run');
+    pill.className = 'pill ' + (running ? 'running' : 'idle');
+    txt.textContent = running ? 'Running…' : 'Idle';
+    btn.disabled = running;
+  }
+
+  /* ── Toast ─────────────────────────────────────────────────────────── */
+  let toastTimer;
+  function toast(msg, ms = 3500) {
+    const el = document.getElementById('toast');
+    clearTimeout(toastTimer);
+    el.textContent = msg;
+    el.classList.add('show');
+    toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+  }
+
+  /* ── Polling ───────────────────────────────────────────────────────── */
+  async function pollStatus() {
+    try {
+      const data = await fetch('/api/status').then(r => r.json());
+      const wasRunning = isRunning;
+      applyStatus(data.is_running);
+
+      // Next run countdown
+      if (data.next_run) {
+        const el = document.getElementById('stat-next-val');
+        el.textContent = timeAgo(data.next_run);
+        el.title = fmtFull(data.next_run);
+      }
+
+      // Last run stat (updated after a run completes)
+      if (data.last_run) {
+        const el = document.getElementById('stat-last-val');
+        const ts = el.querySelector('.ts') || el;
+        ts.dataset.ts = data.last_run.run_at;
+        ts.textContent = timeAgo(data.last_run.run_at);
+        document.getElementById('stat-last-sub').textContent =
+          `${data.last_run.urls_changed} of ${data.last_run.urls_checked} changed`;
+      }
+
+      // Run just finished — refresh panels
+      if (wasRunning && !data.is_running) {
+        toast('Run complete ✓');
+        await refreshAll();
+      }
+    } catch (e) { /* network hiccup — silent */ }
+  }
+
+  function schedulePoll(delay) {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => {
+      await pollStatus();
+      // Fast-poll (2 s) while running; slow-poll (30 s) when idle
+      schedulePoll(isRunning ? 2000 : 30000);
+    }, delay);
+  }
+
+  /* ── Run Now ───────────────────────────────────────────────────────── */
+  async function runNow() {
+    const res  = await fetch('/api/run', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'started') {
+      applyStatus(true);
+      toast('Run started — monitoring for completion…');
+      schedulePoll(1500);
+    } else {
+      toast('A run is already in progress.');
+    }
+  }
+
+  /* ── Sources ───────────────────────────────────────────────────────── */
+  async function refreshSources() {
+    const sources = await fetch('/api/sources').then(r => r.json());
+    const list = document.getElementById('sources-list');
+    const count = document.getElementById('source-count');
+    const stat  = document.getElementById('stat-sources');
+    count.textContent = sources.length;
+    stat.textContent  = sources.length;
+
+    if (sources.length === 0) {
+      list.innerHTML = '<div class="empty">No sources yet — add one below.</div>';
+      return;
+    }
+    list.innerHTML = sources.map((s, i) => `
+      <div class="source-item">
+        <div class="source-body">
+          <div class="source-name">${esc(s.name)}</div>
+          <div class="source-url" title="${esc(s.url)}">${esc(s.url)}</div>
+          <div class="source-ts">
+            ${s.last_checked
+              ? `Last checked: <span class="ts" data-ts="${s.last_checked}">${timeAgo(s.last_checked)}</span>`
+              : 'Never checked'}
+          </div>
+        </div>
+        <button class="btn btn-sm btn-remove" onclick="deleteSource(${i})">Remove</button>
+      </div>
+    `).join('');
+  }
+
+  async function addSource(e) {
+    e.preventDefault();
+    const name = document.getElementById('new-name').value.trim();
+    const url  = document.getElementById('new-url').value.trim();
+    const res  = await fetch('/api/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, url }),
+    });
+    if (res.ok) {
+      document.getElementById('add-form').reset();
+      await refreshSources();
+      toast(`Added: ${name}`);
+    } else {
+      toast('Could not add source — check the URL.');
+    }
+  }
+
+  async function deleteSource(index) {
+    if (!confirm('Remove this source from monitoring?')) return;
+    const res = await fetch(`/api/sources/${index}`, { method: 'DELETE' });
+    if (res.ok) {
+      await refreshSources();
+      toast('Source removed.');
+    }
+  }
+
+  /* ── Runs ──────────────────────────────────────────────────────────── */
+  async function refreshRuns() {
+    const runs = await fetch('/api/runs').then(r => r.json());
+    const tbody = document.getElementById('runs-tbody');
+    const empty = document.getElementById('runs-empty');
+
+    if (runs.length === 0) return;
+
+    // If the table didn't exist yet (empty state on first load), reload
+    if (!tbody) { location.reload(); return; }
+
+    if (empty) empty.remove();
+    tbody.innerHTML = runs.map(r => `
+      <tr>
+        <td><span class="ts" data-ts="${r.run_at}" title="${fmtFull(r.run_at)}">${timeAgo(r.run_at)}</span></td>
+        <td>${r.urls_checked}</td>
+        <td>${r.urls_changed > 0
+          ? `<span class="tag tag-blue">${r.urls_changed}</span>`
+          : '<span class="tag tag-gray">0</span>'}</td>
+        <td>${r.email_sent
+          ? '<span class="tag tag-green">Sent</span>'
+          : '<span class="tag tag-gray">—</span>'}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function refreshAll() {
+    await Promise.all([refreshSources(), refreshRuns()]);
+    refreshTimestamps();
+  }
+
+  /* ── Escape HTML ───────────────────────────────────────────────────── */
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ── Init ──────────────────────────────────────────────────────────── */
+  refreshTimestamps();
+  schedulePoll(4000);  // first poll 4 s after page load
+</script>
+</body>
+</html>

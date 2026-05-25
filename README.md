@@ -120,12 +120,18 @@ smtp:
 
 ### 4. Run it
 
+**Web dashboard** (recommended — runs the scheduler in the background too):
+```bash
+python main.py web
+# Open http://localhost:8000
+```
+
 **One-shot run** (great for testing):
 ```bash
 python main.py run
 ```
 
-**Start the scheduler** (runs on the cron schedule in config.yaml):
+**Headless scheduler** (no web UI, just the cron loop):
 ```bash
 python main.py schedule
 ```
@@ -229,6 +235,55 @@ sudo systemctl edit --force argus
 ```
 
 Or use a simple cron job to call `python main.py run` daily if you prefer not to run the built-in scheduler as a long-lived process.
+
+---
+
+## Deploying on Railway
+
+Argus ships with a `Procfile` and `railway.json` for one-command Railway deploys.
+
+### Steps
+
+1. **Push this repo** to GitHub (public or private).
+
+2. **Create a new Railway project** → *Deploy from GitHub repo* → select your fork.
+
+3. **Add environment variables** in Railway's dashboard under *Variables*:
+
+   | Variable | Value |
+   |---|---|
+   | `OPENAI_API_KEY` | your OpenAI key |
+   | `SMTP_USER` | sending address |
+   | `SMTP_PASSWORD` | app password |
+
+4. **Add a volume** for SQLite persistence (optional but recommended):
+   - Railway → your service → *Volumes* → *New Volume*
+   - Mount path: `/data`
+   - Update `database.path` in `config.yaml` to `/data/argus.db`
+
+   > Without a volume, `argus.db` resets on each redeploy. The web UI still works but run history is lost.
+
+5. **Deploy** — Railway detects the `Procfile` and runs `python main.py web`. The dashboard will be live at your Railway-generated URL.
+
+### What runs on Railway
+
+A single process handles everything:
+- **uvicorn** serves the web dashboard (HTTP, bound to `$PORT`)
+- **APScheduler** runs the daily digest in a background thread
+- The "Run Now" button triggers immediate runs without a separate worker
+
+### railway.json reference
+
+```json
+{
+  "deploy": {
+    "startCommand": "python main.py web",
+    "healthcheckPath": "/api/status"
+  }
+}
+```
+
+Railway pings `/api/status` to confirm the service is up before routing traffic.
 
 ---
 

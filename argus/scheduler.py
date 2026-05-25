@@ -18,6 +18,7 @@ import os
 from datetime import datetime, timezone
 
 import openai
+from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -209,6 +210,48 @@ def start_scheduler(config: dict, db_path: str) -> None:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
         logger.info("Argus scheduler stopped.")
+
+
+def start_background_scheduler(
+    config: dict,
+    db_path: str,
+    run_fn=None,
+) -> BackgroundScheduler:
+    """
+    Start APScheduler in non-blocking (background thread) mode.
+
+    Used when the web server occupies the main thread. The returned scheduler
+    object should be stored in app.state so routes can inspect next_run_time.
+
+    Args:
+        config:  Parsed config.yaml as a dict.
+        db_path: Filesystem path to the SQLite database.
+        run_fn:  Optional callable to use as the job function. Defaults to
+                 run_digest — pass a wrapper if you need lock-guarded execution.
+
+    Returns:
+        A started BackgroundScheduler instance.
+    """
+    cron_expr = config.get("schedule", {}).get("cron", "0 6 * * *")
+    job_fn = run_fn or run_digest
+
+    scheduler = BackgroundScheduler(timezone="UTC")
+    trigger = CronTrigger.from_crontab(cron_expr, timezone="UTC")
+
+    scheduler.add_job(
+        func=job_fn,
+        trigger=trigger,
+        args=[config, db_path] if job_fn is run_digest else [],
+        id="argus_digest",
+        name="Argus Competitive Intel Digest",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    scheduler.start()
+    next_run = scheduler.get_jobs()[0].next_run_time
+    logger.info("Background scheduler started. Next run: %s", next_run)
+    return scheduler
 
 
 # ---------------------------------------------------------------------------

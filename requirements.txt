@@ -14,6 +14,11 @@ lxml>=5.1.0          # faster parser backend for BeautifulSoup
 # Scheduling — APScheduler drives the daily cron loop
 APScheduler>=3.10.0
 
+# Web dashboard
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+jinja2>=3.1.0
+
 # Config and env
 python-dotenv>=1.0.0
 PyYAML>=6.0.1
