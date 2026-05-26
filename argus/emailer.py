@@ -345,7 +345,9 @@ def _looks_new(summary: ChangeSummary) -> bool:
 
 def render_summary_html(text: str) -> str:
     """Convert LLM summary markdown to safe HTML for the web dashboard."""
-    return _markdown_to_html(text)
+    from argus.markdown_render import render_digest_markdown
+
+    return render_digest_markdown(text)
 
 
 def _markdown_to_html(text: str) -> str:

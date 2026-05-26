@@ -53,7 +53,8 @@ opportunities (e.g. "their blog post signals a pivot away from SMB — potential
 - If the change is genuinely trivial (minor copy tweaks, date stamps, formatting), say so \
 briefly — don't over-analyse noise
 - Be direct and businesslike; no filler phrases like "It's worth noting that..."
-- Format: 2-4 short paragraphs OR a tight bullet list, whichever is more scannable
+- Format: use ### headings for each distinct topic, then short paragraphs or bullet lists \
+under each heading — keep it scannable for a busy GTM reader
 - Do not wrap your response in markdown code blocks"""
 
 # ---------------------------------------------------------------------------
