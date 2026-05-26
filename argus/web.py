@@ -18,8 +18,8 @@ and the same threading.Lock that prevents concurrent digest runs.
 """
 
 import logging
+import os
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -94,6 +94,7 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
         runs = _get_recent_runs(conn, limit=15)
         sources = _get_sources_with_status(app.state.config, conn)
         digest = _format_digest(storage.get_latest_digest(conn))
+        digest_hint = _digest_hint(runs, digest)
         conn.close()
 
         cron = app.state.config.get("schedule", {}).get("cron", "0 6 * * *")
@@ -105,6 +106,8 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
                 "sources": sources,
                 "runs": runs,
                 "digest": digest,
+                "digest_hint": digest_hint,
+                "openai_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
                 "is_running": app.state.run_lock.locked(),
                 "cron": cron,
             },
@@ -156,6 +159,7 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
             "is_running": app.state.run_lock.locked(),
             "next_run": next_run,
             "last_run": last_runs[0] if last_runs else None,
+            "openai_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
         }
 
     # -----------------------------------------------------------------------
@@ -282,7 +286,32 @@ def _get_recent_runs(conn, limit: int = 15) -> list[dict[str, Any]]:
         """,
         (limit,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [_serialize_run(dict(row)) for row in rows]
+
+
+def _serialize_run(row: dict) -> dict:
+    """Normalize run_log rows for JSON and the dashboard."""
+    run_at = row.get("run_at")
+    if hasattr(run_at, "isoformat"):
+        row["run_at"] = run_at.isoformat()
+    row["summary_count"] = int(row.get("summary_count") or 0)
+    return row
+
+
+def _digest_hint(runs: list[dict], digest: dict | None) -> str | None:
+    """Explain why Latest Digest is empty when the last run detected changes."""
+    if digest or not runs:
+        return None
+    latest = runs[0]
+    if int(latest.get("urls_changed") or 0) == 0:
+        return None
+    if int(latest.get("summary_count") or 0) > 0:
+        return None
+    return (
+        latest.get("error_message")
+        or "Changes were detected but summarization produced no output. "
+        "Set OPENAI_API_KEY and click Run Now again."
+    )
 
 
 def _format_digest(raw: dict | None) -> dict | None:

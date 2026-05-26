@@ -111,6 +111,7 @@ def run_digest(config: dict, db_path: str) -> None:
     # -----------------------------------------------------------------------
 
     summaries: list[summarizer.ChangeSummary] = []
+    summary_errors: list[str] = []
 
     for diff_result, source in changed_sources:
         name = source.get("name", diff_result.url)
@@ -127,9 +128,10 @@ def run_digest(config: dict, db_path: str) -> None:
             )
             summaries.append(summary)
         except Exception as exc:  # noqa: BLE001
-            # A summarization failure for one source should not prevent the
-            # rest of the summaries or the email from being sent.
-            logger.error("Summarization failed for %s: %s", name, exc)
+            # Surface failures in the dashboard instead of leaving the digest empty.
+            logger.error("Summarization failed for %s: %s", name, exc, exc_info=True)
+            summary_errors.append(f"{name}: {exc}")
+            summaries.append(_summary_error(name, diff_result.url, exc))
 
     # -----------------------------------------------------------------------
     # Phase 3: Optional email delivery (dashboard is the default output)
@@ -148,7 +150,7 @@ def run_digest(config: dict, db_path: str) -> None:
             email_sent = True
         except Exception as exc:  # noqa: BLE001
             logger.error("Email delivery failed: %s", exc)
-    elif not summaries:
+    elif not changed_sources:
         logger.info(
             "No changes detected across %d source%s.",
             len(sources),
@@ -159,11 +161,20 @@ def run_digest(config: dict, db_path: str) -> None:
     # Phase 4: Log run outcome and persist summaries for the dashboard
     # -----------------------------------------------------------------------
 
+    error_message = "; ".join(summary_errors) if summary_errors else None
+    if summary_errors:
+        logger.warning(
+            "Summarization failed for %d source%s — error cards saved to dashboard.",
+            len(summary_errors),
+            "s" if len(summary_errors) != 1 else "",
+        )
+
     run_id = storage.log_run(
         conn=conn,
         urls_checked=len(sources),
         urls_changed=len(changed_sources),
         email_sent=email_sent,
+        error_message=error_message,
     )
 
     if summaries:
@@ -264,6 +275,26 @@ def start_background_scheduler(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _summary_error(source_name: str, url: str, exc: Exception) -> summarizer.ChangeSummary:
+    """Build a dashboard-visible card when OpenAI summarization fails."""
+    detail = str(exc).strip() or exc.__class__.__name__
+    text = (
+        f"**Summary could not be generated** for {source_name}.\n\n"
+        f"Error: {detail}\n\n"
+        "Verify `OPENAI_API_KEY` is set in your environment (Railway **Variables** "
+        "or a local `.env` file), that the key is valid, and that your OpenAI account "
+        "has API access with billing enabled."
+    )
+    return summarizer.ChangeSummary(
+        url=url,
+        source_name=source_name,
+        summary_text=text,
+        input_tokens=0,
+        cached_tokens=0,
+        output_tokens=0,
+    )
 
 
 def _email_enabled(config: dict) -> bool:
