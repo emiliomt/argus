@@ -23,7 +23,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from argus import diff as diff_module
-from argus import emailer, scraper, storage, summarizer
+from argus import emailer, env, scraper, storage, summarizer
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ def run_digest(config: dict, db_path: str) -> None:
 
     # One OpenAI client per run — reusing a single client is more efficient
     # than instantiating one per URL call.
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = env.get_openai_api_key()
     if not api_key:
         raise EnvironmentError(
             "OPENAI_API_KEY is not set. Add it to your .env file or environment."
@@ -111,6 +111,7 @@ def run_digest(config: dict, db_path: str) -> None:
     # -----------------------------------------------------------------------
 
     summaries: list[summarizer.ChangeSummary] = []
+    summary_errors: list[str] = []
 
     for diff_result, source in changed_sources:
         name = source.get("name", diff_result.url)
@@ -127,45 +128,62 @@ def run_digest(config: dict, db_path: str) -> None:
             )
             summaries.append(summary)
         except Exception as exc:  # noqa: BLE001
-            # A summarization failure for one source should not prevent the
-            # rest of the summaries or the email from being sent.
-            logger.error("Summarization failed for %s: %s", name, exc)
+            # Surface failures in the dashboard instead of leaving the digest empty.
+            logger.error("Summarization failed for %s: %s", name, exc, exc_info=True)
+            summary_errors.append(f"{name}: {exc}")
+            summaries.append(_summary_error(name, diff_result.url, exc))
 
     # -----------------------------------------------------------------------
-    # Phase 3: Build and send email digest
+    # Phase 3: Optional email delivery (dashboard is the default output)
     # -----------------------------------------------------------------------
 
     email_sent = False
 
-    if summaries:
+    if summaries and _email_enabled(config):
         digest = emailer.build_digest(
             summaries=summaries,
             run_date=datetime.now(timezone.utc),
             total_checked=len(sources),
         )
-
         try:
             _deliver_email(config, digest)
             email_sent = True
         except Exception as exc:  # noqa: BLE001
             logger.error("Email delivery failed: %s", exc)
-    else:
+    elif not changed_sources:
         logger.info(
-            "No changes detected across %d source%s — no email sent.",
+            "No changes detected across %d source%s.",
             len(sources),
             "s" if len(sources) != 1 else "",
         )
 
     # -----------------------------------------------------------------------
-    # Phase 4: Log run outcome
+    # Phase 4: Log run outcome and persist summaries for the dashboard
     # -----------------------------------------------------------------------
 
-    storage.log_run(
+    error_message = "; ".join(summary_errors) if summary_errors else None
+    if summary_errors:
+        logger.warning(
+            "Summarization failed for %d source%s — error cards saved to dashboard.",
+            len(summary_errors),
+            "s" if len(summary_errors) != 1 else "",
+        )
+
+    run_id = storage.log_run(
         conn=conn,
         urls_checked=len(sources),
         urls_changed=len(changed_sources),
         email_sent=email_sent,
+        error_message=error_message,
     )
+
+    if summaries:
+        storage.save_run_summaries(conn, run_id, summaries)
+        logger.info(
+            "Digest saved to dashboard (%d summar%s).",
+            len(summaries),
+            "y" if len(summaries) == 1 else "ies",
+        )
 
     conn.close()
     logger.info("Argus digest run complete.")
@@ -257,6 +275,52 @@ def start_background_scheduler(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _summary_error(source_name: str, url: str, exc: Exception) -> summarizer.ChangeSummary:
+    """Build a dashboard-visible card when OpenAI summarization fails."""
+    detail = str(exc).strip() or exc.__class__.__name__
+    text = (
+        f"**Summary could not be generated** for {source_name}.\n\n"
+        f"Error: {detail}\n\n"
+        f"{_openai_failure_hint(detail)}"
+    )
+    return summarizer.ChangeSummary(
+        url=url,
+        source_name=source_name,
+        summary_text=text,
+        input_tokens=0,
+        cached_tokens=0,
+        output_tokens=0,
+    )
+
+
+def _openai_failure_hint(detail: str) -> str:
+    """Return actionable guidance based on the OpenAI error message."""
+    lower = detail.lower()
+    if "invalid_api_key" in lower or "incorrect api key" in lower or "error code: 401" in lower:
+        return (
+            "**Fix (invalid API key):**\n"
+            "1. Open https://platform.openai.com/api-keys and create a **new** secret key.\n"
+            "2. In Railway → your service → **Variables**, set `OPENAI_API_KEY` to that key "
+            "(paste only the key — no quotes, no spaces).\n"
+            "3. **Redeploy** the service (env changes do not apply until redeploy).\n"
+            "4. Click **Run Now** again."
+        )
+    return (
+        "Verify `OPENAI_API_KEY` is set (Railway **Variables** or `.env`), the key is valid, "
+        "and your OpenAI account has API access with billing enabled."
+    )
+
+
+def _email_enabled(config: dict) -> bool:
+    """Return True only when email delivery is explicitly turned on in config."""
+    email_cfg = config.get("email") or {}
+    if not email_cfg.get("enabled", False):
+        return False
+    if not email_cfg.get("from") or not email_cfg.get("to"):
+        return False
+    return True
 
 
 def _deliver_email(config: dict, digest: emailer.DigestEmail) -> None:

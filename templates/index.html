@@ -252,6 +252,138 @@
     .tag-green { background: var(--green-dim); color: var(--green); }
     .tag-gray  { background: #f1f5f9; color: var(--muted); }
 
+    /* ── Digest ──────────────────────────────────────────────────── */
+    .digest-section { margin-bottom: 20px; }
+    .digest-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    .digest-card {
+      padding: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .digest-card:last-child { border-bottom: none; }
+    .digest-card-header {
+      padding: 18px 22px 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+    }
+    .digest-source {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+      letter-spacing: -0.2px;
+    }
+    .digest-url {
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-all;
+    }
+    .digest-url a { color: var(--blue); text-decoration: none; }
+    .digest-url a:hover { text-decoration: underline; }
+    .digest-body {
+      padding: 20px 22px 24px;
+      font-size: 14px;
+      line-height: 1.7;
+      color: #334155;
+    }
+    .digest-rendered { max-width: 72ch; }
+    .digest-rendered .digest-heading {
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.2px;
+      margin: 0 0 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .digest-rendered .digest-h2 { font-size: 16px; margin-top: 4px; }
+    .digest-rendered .digest-h3 { font-size: 14px; margin-top: 20px; }
+    .digest-rendered .digest-h3:first-child,
+    .digest-rendered .digest-h2:first-child { margin-top: 0; }
+    .digest-rendered .digest-h4 { font-size: 13px; margin-top: 16px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: none; padding-bottom: 0; }
+    .digest-rendered .digest-p {
+      margin: 0 0 14px;
+    }
+    .digest-rendered .digest-p:last-child { margin-bottom: 0; }
+    .digest-rendered .digest-list {
+      margin: 0 0 18px;
+      padding: 0;
+      list-style: none;
+    }
+    .digest-rendered .digest-list li {
+      position: relative;
+      padding: 0 0 10px 20px;
+      margin: 0;
+    }
+    .digest-rendered .digest-list li:last-child { padding-bottom: 0; }
+    .digest-rendered ul.digest-list li::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      top: 10px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+    .digest-rendered ol.digest-list {
+      counter-reset: digest-item;
+    }
+    .digest-rendered ol.digest-list li {
+      counter-increment: digest-item;
+      padding-left: 28px;
+    }
+    .digest-rendered ol.digest-list li::before {
+      content: counter(digest-item);
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--blue);
+      background: var(--blue-dim);
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 20px;
+      text-align: center;
+    }
+    .digest-rendered strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .digest-rendered em { color: #475569; }
+    .digest-rendered .digest-code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .digest-card.error-card .digest-card-header {
+      background: #fff7ed;
+    }
+    .digest-card.error-card .digest-body {
+      background: #fffbeb;
+    }
+
+    .alert-banner {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      display: none;
+    }
+    .alert-banner.show { display: block; }
+
     /* ── Empty state ─────────────────────────────────────────────── */
     .empty {
       padding: 36px 20px;
@@ -298,6 +430,14 @@
 <!-- ── Page ───────────────────────────────────────────────────────────── -->
 <div class="page">
 
+  <div id="config-alert" class="alert-banner {{ 'show' if not openai_configured or digest_hint else '' }}">
+    {% if not openai_configured %}
+      OPENAI_API_KEY is not set. Add it in Railway Variables or .env — summaries cannot be generated until it is configured.
+    {% elif digest_hint %}
+      {{ digest_hint }}
+    {% endif %}
+  </div>
+
   <!-- Stat cards -->
   <div class="stats">
     <div class="stat">
@@ -324,6 +464,42 @@
       <div class="stat-sub" id="stat-next-sub">{{ cron }}</div>
     </div>
   </div>
+
+  <!-- Latest digest -->
+  <section class="digest-section">
+    <div class="card" id="digest-card">
+      <div class="card-head">
+        <span class="card-title">Latest Digest</span>
+        <span class="digest-meta" id="digest-meta">
+          {% if digest %}
+            <span class="ts" data-ts="{{ digest.run_at }}">—</span>
+            · {{ digest.summaries | length }} summar{{ 'y' if digest.summaries | length == 1 else 'ies' }}
+          {% endif %}
+        </span>
+      </div>
+      <div id="digest-body">
+        {% if digest %}
+          {% for s in digest.summaries %}
+          <div class="digest-card">
+            <div class="digest-card-header">
+              <div class="digest-source">{{ s.source_name }}</div>
+              <div class="digest-url"><a href="{{ s.url }}" target="_blank" rel="noopener">{{ s.url }}</a></div>
+            </div>
+            <div class="digest-body">{{ s.summary_html | safe }}</div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty" id="digest-empty">
+            {% if digest_hint %}
+              {{ digest_hint }}
+            {% else %}
+              No summaries yet — run a check to capture changes and generate summaries.
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </section>
 
   <!-- Two-column content -->
   <div class="grid">
@@ -377,7 +553,7 @@
             <th>When</th>
             <th>Checked</th>
             <th>Changed</th>
-            <th>Email</th>
+            <th>Summaries</th>
           </tr>
         </thead>
         <tbody id="runs-tbody">
@@ -393,8 +569,8 @@
               {% endif %}
             </td>
             <td>
-              {% if r.email_sent %}
-                <span class="tag tag-green">Sent</span>
+              {% if r.summary_count > 0 %}
+                <span class="tag tag-green">{{ r.summary_count }}</span>
               {% else %}
                 <span class="tag tag-gray">—</span>
               {% endif %}
@@ -419,20 +595,38 @@
   let pollTimer = null;
 
   /* ── Relative time ─────────────────────────────────────────────────── */
+  function parseDate(iso) {
+    if (!iso) return null;
+    let d = new Date(iso);
+    if (!Number.isNaN(d.getTime())) return d;
+    const normalized = iso.includes('T') ? iso : iso.replace(' ', 'T');
+    const withTz = /Z|[+-]\d{2}:?\d{2}$/.test(normalized) ? normalized : normalized + 'Z';
+    d = new Date(withTz);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   function timeAgo(iso) {
-    if (!iso) return '—';
-    // SQLite timestamps lack 'Z'; treat them as UTC
-    const d = new Date(iso.includes('T') && !iso.endsWith('Z') ? iso + 'Z' : iso);
+    const d = parseDate(iso);
+    if (!d) return '—';
     const s = Math.floor((Date.now() - d) / 1000);
-    if (s < 5)    return 'just now';
-    if (s < 60)   return s + 's ago';
+    if (s < 0)   return 'just now';
+    if (s < 5)   return 'just now';
+    if (s < 60)  return s + 's ago';
     if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    if (s < 86400)return Math.floor(s / 3600) + 'h ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
     return Math.floor(s / 86400) + 'd ago';
   }
+  function timeUntil(iso) {
+    const d = parseDate(iso);
+    if (!d) return '—';
+    const s = Math.floor((d - Date.now()) / 1000);
+    if (s < 60) return 'in ' + s + 's';
+    if (s < 3600) return 'in ' + Math.floor(s / 60) + 'm';
+    if (s < 86400) return 'in ' + Math.floor(s / 3600) + 'h';
+    return 'in ' + Math.floor(s / 86400) + 'd';
+  }
   function fmtFull(iso) {
-    if (!iso) return '';
-    const d = new Date(iso.includes('T') && !iso.endsWith('Z') ? iso + 'Z' : iso);
+    const d = parseDate(iso);
+    if (!d) return '';
     return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
   }
   function refreshTimestamps() {
@@ -470,11 +664,25 @@
       const wasRunning = isRunning;
       applyStatus(data.is_running);
 
-      // Next run countdown
+      // Next scheduled run (future time)
       if (data.next_run) {
         const el = document.getElementById('stat-next-val');
-        el.textContent = timeAgo(data.next_run);
+        el.textContent = timeUntil(data.next_run);
         el.title = fmtFull(data.next_run);
+      }
+
+      // Config warnings
+      const alert = document.getElementById('config-alert');
+      if (!data.openai_configured) {
+        alert.textContent =
+          'OPENAI_API_KEY is not set. Add it in Railway Variables or .env — summaries cannot be generated until it is configured.';
+        alert.classList.add('show');
+      } else if (data.last_run && data.last_run.urls_changed > 0
+          && data.last_run.summary_count === 0 && data.last_run.error_message) {
+        alert.textContent = 'Last run detected changes but summaries failed: ' + data.last_run.error_message;
+        alert.classList.add('show');
+      } else {
+        alert.classList.remove('show');
       }
 
       // Last run stat (updated after a run completes)
@@ -592,15 +800,47 @@
         <td>${r.urls_changed > 0
           ? `<span class="tag tag-blue">${r.urls_changed}</span>`
           : '<span class="tag tag-gray">0</span>'}</td>
-        <td>${r.email_sent
-          ? '<span class="tag tag-green">Sent</span>'
+        <td>${r.summary_count > 0
+          ? `<span class="tag tag-green">${r.summary_count}</span>`
           : '<span class="tag tag-gray">—</span>'}</td>
       </tr>
     `).join('');
   }
 
+  async function refreshDigest() {
+    const digest = await fetch('/api/digest').then(r => r.json());
+    const body = document.getElementById('digest-body');
+    const meta = document.getElementById('digest-meta');
+
+    if (!digest || !digest.summaries || digest.summaries.length === 0) {
+      const hint = (await fetch('/api/status').then(r => r.json())).last_run;
+      let msg = 'No changes in the latest run — summaries appear here when sources change.';
+      if (hint && hint.urls_changed > 0 && (!hint.summary_count || hint.summary_count === 0)) {
+        msg = hint.error_message || 'Changes were detected but summarization failed. Check OPENAI_API_KEY and run again.';
+      }
+      body.innerHTML = `<div class="empty" id="digest-empty">${esc(msg)}</div>`;
+      meta.textContent = '';
+      return;
+    }
+
+    const n = digest.summaries.length;
+    meta.innerHTML = `<span class="ts" data-ts="${digest.run_at}">${timeAgo(digest.run_at)}</span> · ${n} summar${n === 1 ? 'y' : 'ies'}`;
+
+    body.innerHTML = digest.summaries.map(s => {
+      const isError = (s.summary_text || '').includes('Summary could not be generated');
+      return `
+      <div class="digest-card${isError ? ' error-card' : ''}">
+        <div class="digest-card-header">
+          <div class="digest-source">${esc(s.source_name)}</div>
+          <div class="digest-url"><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.url)}</a></div>
+        </div>
+        <div class="digest-body">${s.summary_html}</div>
+      </div>`;
+    }).join('');
+  }
+
   async function refreshAll() {
-    await Promise.all([refreshSources(), refreshRuns()]);
+    await Promise.all([refreshSources(), refreshRuns(), refreshDigest()]);
     refreshTimestamps();
   }
 

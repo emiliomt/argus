@@ -180,12 +180,12 @@ examples:
         _start_web(config, db_path, args.config)
 
     elif args.command == "run":
-        config = _load_config(args.config, require_email=True)
+        config = _load_config(args.config, require_email=False)
         db_path = config.get("database", {}).get("path", "argus.db")
         scheduler_module.run_digest(config, db_path)
 
     elif args.command == "schedule":
-        config = _load_config(args.config, require_email=True)
+        config = _load_config(args.config, require_email=False)
         db_path = config.get("database", {}).get("path", "argus.db")
         scheduler_module.start_scheduler(config, db_path)
 

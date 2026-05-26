@@ -6,6 +6,8 @@ Provides:
   POST /api/run       — Trigger an immediate digest run (non-blocking)
   GET  /api/status    — Current run state + next scheduled run time
   GET  /api/runs      — Recent run history from run_log
+  GET  /api/digest    — Latest run summaries (dashboard digest)
+  GET  /api/runs/{id}/summaries — Summaries for a specific run
   GET  /api/sources   — Source list with last-checked metadata
   POST /api/sources   — Add a new source (persisted to config.yaml)
   DELETE /api/sources/{index} — Remove a source by list index
@@ -17,7 +19,6 @@ and the same threading.Lock that prevents concurrent digest runs.
 
 import logging
 import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +28,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from argus import storage
+from argus import emailer, env, storage
 from argus.scheduler import run_digest
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,8 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
         conn = storage.init_db(app.state.db_path)
         runs = _get_recent_runs(conn, limit=15)
         sources = _get_sources_with_status(app.state.config, conn)
+        digest = _format_digest(storage.get_latest_digest(conn))
+        digest_hint = _digest_hint(runs, digest)
         conn.close()
 
         cron = app.state.config.get("schedule", {}).get("cron", "0 6 * * *")
@@ -101,6 +104,9 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
             {
                 "sources": sources,
                 "runs": runs,
+                "digest": digest,
+                "digest_hint": digest_hint,
+                "openai_configured": env.openai_api_key_configured(),
                 "is_running": app.state.run_lock.locked(),
                 "cron": cron,
             },
@@ -152,6 +158,7 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
             "is_running": app.state.run_lock.locked(),
             "next_run": next_run,
             "last_run": last_runs[0] if last_runs else None,
+            "openai_configured": env.openai_api_key_configured(),
         }
 
     # -----------------------------------------------------------------------
@@ -165,6 +172,31 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
         runs = _get_recent_runs(conn, limit=20)
         conn.close()
         return runs
+
+    @app.get("/api/digest")
+    async def get_digest() -> dict[str, Any] | None:
+        """Return the latest digest (summaries from the most recent run with changes)."""
+        conn = storage.init_db(app.state.db_path)
+        digest = _format_digest(storage.get_latest_digest(conn))
+        conn.close()
+        return digest
+
+    @app.get("/api/runs/{run_id}/summaries")
+    async def get_run_summaries(run_id: int) -> list[dict[str, Any]]:
+        """Return summaries for a specific run."""
+        conn = storage.init_db(app.state.db_path)
+        exists = conn.execute(
+            "SELECT 1 FROM run_log WHERE id = ?", (run_id,)
+        ).fetchone()
+        if not exists:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
+        summaries = storage.get_summaries_for_run(conn, run_id)
+        conn.close()
+        return [
+            {**s, "summary_html": emailer.render_summary_html(s["summary_text"])}
+            for s in summaries
+        ]
 
     # -----------------------------------------------------------------------
     # Source management
@@ -244,14 +276,62 @@ def _get_recent_runs(conn, limit: int = 15) -> list[dict[str, Any]]:
     """Query the run_log table and return rows as plain dicts."""
     rows = conn.execute(
         """
-        SELECT id, run_at, urls_checked, urls_changed, email_sent, error_message
-        FROM run_log
-        ORDER BY run_at DESC
+        SELECT r.id, r.run_at, r.urls_checked, r.urls_changed, r.email_sent,
+               r.error_message,
+               (SELECT COUNT(*) FROM run_summaries s WHERE s.run_id = r.id) AS summary_count
+        FROM run_log r
+        ORDER BY r.run_at DESC
         LIMIT ?
         """,
         (limit,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [_serialize_run(dict(row)) for row in rows]
+
+
+def _serialize_run(row: dict) -> dict:
+    """Normalize run_log rows for JSON and the dashboard."""
+    run_at = row.get("run_at")
+    if hasattr(run_at, "isoformat"):
+        row["run_at"] = run_at.isoformat()
+    row["summary_count"] = int(row.get("summary_count") or 0)
+    return row
+
+
+def _digest_hint(runs: list[dict], digest: dict | None) -> str | None:
+    """Explain why Latest Digest is empty when the last run detected changes."""
+    if digest or not runs:
+        return None
+    latest = runs[0]
+    if int(latest.get("urls_changed") or 0) == 0:
+        return None
+    if int(latest.get("summary_count") or 0) > 0:
+        return None
+    return (
+        latest.get("error_message")
+        or "Changes were detected but summarization produced no output. "
+        "Set OPENAI_API_KEY and click Run Now again."
+    )
+
+
+def _format_digest(raw: dict | None) -> dict | None:
+    """Add pre-rendered HTML for each summary in a digest payload."""
+    if raw is None:
+        return None
+    return {
+        **raw,
+        "run_at": (
+            raw["run_at"].isoformat()
+            if hasattr(raw["run_at"], "isoformat")
+            else raw["run_at"]
+        ),
+        "summaries": [
+            {
+                **s,
+                "summary_html": emailer.render_summary_html(s["summary_text"]),
+            }
+            for s in raw["summaries"]
+        ],
+    }
 
 
 def _get_sources_with_status(config: dict, conn) -> list[dict[str, Any]]:
