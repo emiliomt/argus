@@ -1,6 +1,6 @@
 # 🔍 Argus — Competitive Intelligence Monitor
 
-> **Your ops and GTM team are spending hours every week manually checking competitor pricing pages, product blogs, and industry news feeds.** Argus does it overnight: scrape a configurable URL list, detect what changed, summarize it with an LLM, and deliver a formatted email digest — every morning before standup.
+> **Your ops and GTM team are spending hours every week manually checking competitor pricing pages, product blogs, and industry news feeds.** Argus does it overnight: scrape a configurable URL list, detect what changed, summarize it with an LLM, and deliver a formatted email digest every morning before standup.
 
 ---
 
@@ -47,7 +47,7 @@ config.yaml                          .env
   APScheduler (cron) — runs daily at 6 AM UTC
 ```
 
-**Change detection** uses a content-aware hash: navigation, headers, footers, scripts, and other boilerplate are stripped before hashing. This means a new blog post or a pricing change triggers the alert — but a nav link counter ticking up does not.
+**Change detection** uses a content-aware hash: navigation, headers, footers, scripts, and other boilerplate are stripped before hashing. This means a new blog post or a pricing change triggers the alert but a nav link counter ticking up does not.
 
 **Summarization** uses `gpt-4o` via the OpenAI API. The LLM is called once per changed source. OpenAI automatically caches repeated prompt prefixes (for inputs > 1024 tokens), and cached token counts are logged so you can track savings.
 
