@@ -23,7 +23,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from argus import diff as diff_module
-from argus import emailer, scraper, storage, summarizer
+from argus import emailer, env, scraper, storage, summarizer
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ def run_digest(config: dict, db_path: str) -> None:
 
     # One OpenAI client per run — reusing a single client is more efficient
     # than instantiating one per URL call.
-    api_key = os.environ.get("OPENAI_API_KEY")
+    api_key = env.get_openai_api_key()
     if not api_key:
         raise EnvironmentError(
             "OPENAI_API_KEY is not set. Add it to your .env file or environment."
@@ -283,9 +283,7 @@ def _summary_error(source_name: str, url: str, exc: Exception) -> summarizer.Cha
     text = (
         f"**Summary could not be generated** for {source_name}.\n\n"
         f"Error: {detail}\n\n"
-        "Verify `OPENAI_API_KEY` is set in your environment (Railway **Variables** "
-        "or a local `.env` file), that the key is valid, and that your OpenAI account "
-        "has API access with billing enabled."
+        f"{_openai_failure_hint(detail)}"
     )
     return summarizer.ChangeSummary(
         url=url,
@@ -294,6 +292,24 @@ def _summary_error(source_name: str, url: str, exc: Exception) -> summarizer.Cha
         input_tokens=0,
         cached_tokens=0,
         output_tokens=0,
+    )
+
+
+def _openai_failure_hint(detail: str) -> str:
+    """Return actionable guidance based on the OpenAI error message."""
+    lower = detail.lower()
+    if "invalid_api_key" in lower or "incorrect api key" in lower or "error code: 401" in lower:
+        return (
+            "**Fix (invalid API key):**\n"
+            "1. Open https://platform.openai.com/api-keys and create a **new** secret key.\n"
+            "2. In Railway → your service → **Variables**, set `OPENAI_API_KEY` to that key "
+            "(paste only the key — no quotes, no spaces).\n"
+            "3. **Redeploy** the service (env changes do not apply until redeploy).\n"
+            "4. Click **Run Now** again."
+        )
+    return (
+        "Verify `OPENAI_API_KEY` is set (Railway **Variables** or `.env`), the key is valid, "
+        "and your OpenAI account has API access with billing enabled."
     )
 
 

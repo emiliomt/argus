@@ -18,7 +18,6 @@ and the same threading.Lock that prevents concurrent digest runs.
 """
 
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -29,7 +28,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from argus import emailer, storage
+from argus import emailer, env, storage
 from argus.scheduler import run_digest
 
 logger = logging.getLogger(__name__)
@@ -107,7 +106,7 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
                 "runs": runs,
                 "digest": digest,
                 "digest_hint": digest_hint,
-                "openai_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
+                "openai_configured": env.openai_api_key_configured(),
                 "is_running": app.state.run_lock.locked(),
                 "cron": cron,
             },
@@ -159,7 +158,7 @@ def create_app(config: dict, db_path: str, config_path: str) -> FastAPI:
             "is_running": app.state.run_lock.locked(),
             "next_run": next_run,
             "last_run": last_runs[0] if last_runs else None,
-            "openai_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
+            "openai_configured": env.openai_api_key_configured(),
         }
 
     # -----------------------------------------------------------------------
